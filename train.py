@@ -1,3 +1,4 @@
+import ale_py
 import gymnasium as gym
 import numpy as np
 from stable_baselines3 import DQN
@@ -8,13 +9,15 @@ from stable_baselines3.common.logger import configure
 import os
 import time
 
+
 def create_environment():
     """Create and configure the Atari environment"""
     # Create Atari environment with proper preprocessing
-    env = make_atari_env('BreakoutNoFrameskip-v4', n_envs=1, seed=42)
+    env = make_atari_env('ALE/Breakout-v5', n_envs=1, seed=42)
     # Frame stacking: stack 4 frames for temporal information
     env = VecFrameStack(env, n_stack=4)
     return env
+
 
 def train_dqn_agent(hyperparams, policy_type="CnnPolicy", total_timesteps=1000000):
     """
@@ -96,6 +99,7 @@ def train_dqn_agent(hyperparams, policy_type="CnnPolicy", total_timesteps=100000
 
     return model, log_dir
 
+
 def compare_policies():
     """Compare CNN and MLP policies"""
 
@@ -131,6 +135,7 @@ def compare_policies():
     except Exception as e:
         print(f"MLP Policy failed (expected for Atari): {e}")
         print("CNN Policy is the correct choice for Atari environments.")
+
 
 def hyperparameter_tuning():
     """
@@ -218,10 +223,11 @@ def hyperparameter_tuning():
 
     return results
 
+
 def main():
     """Main function to run training"""
 
-    print("DQN Training for BreakoutNoFrameskip-v4")
+    print("DQN Training for ALE/Breakout-v5")
     print("=" * 50)
 
     # Choose what to run:
@@ -229,7 +235,8 @@ def main():
     # 2. Full hyperparameter tuning
     # 3. Single training run
 
-    choice = input("Choose option:\n1. Policy comparison\n2. Hyperparameter tuning\n3. Single training run\nEnter choice (1-3): ")
+    choice = input(
+        "Choose option:\n1. Policy comparison\n2. Hyperparameter tuning\n3. Single training run\nEnter choice (1-3): ")
 
     if choice == "1":
         compare_policies()
@@ -272,6 +279,7 @@ def main():
             policy_type="CnnPolicy",
             total_timesteps=1000000
         )
+
 
 if __name__ == "__main__":
     main()
