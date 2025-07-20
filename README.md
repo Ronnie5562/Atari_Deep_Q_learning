@@ -3,7 +3,7 @@
 This project implements a Deep Q-Network (DQN) agent to play the Atari game Breakout using Stable Baselines3 and Gymnasium.
 
 ## Environment
-- **Game**: BreakoutNoFrameskip-v4
+- **Game**: ALE/Breakout-v5
 - **Framework**: Stable Baselines3 with Gymnasium
 - **Policy**: CNN Policy (Convolutional Neural Network)
 
