@@ -1,3 +1,4 @@
+import ale_py
 import gymnasium as gym
 import numpy as np
 from stable_baselines3 import DQN
@@ -6,13 +7,15 @@ from stable_baselines3.common.vec_env import VecFrameStack
 import time
 import os
 
+
 def create_environment(render_mode="human"):
     """Create and configure the Atari environment for playing"""
     # Create Atari environment with rendering
-    env = make_atari_env('BreakoutNoFrameskip-v4', n_envs=1, seed=42)
+    env = make_atari_env('ALE/Breakout-v5', n_envs=1, seed=42)
     # Frame stacking: stack 4 frames for temporal information
     env = VecFrameStack(env, n_stack=4)
     return env
+
 
 def play_dqn_agent(model_path="dqn_model.zip", num_episodes=5):
     """
@@ -72,6 +75,7 @@ def play_dqn_agent(model_path="dqn_model.zip", num_episodes=5):
 
     env.close()
     print("\nPlayback completed!")
+
 
 def evaluate_agent_performance(model_path="dqn_model.zip", num_episodes=10):
     """
@@ -136,6 +140,7 @@ def evaluate_agent_performance(model_path="dqn_model.zip", num_episodes=10):
     print(f"Worst episode reward: {min(rewards):.2f}")
 
     return rewards, episode_lengths
+
 
 def play_with_statistics(model_path="dqn_model.zip", num_episodes=3):
     """
@@ -204,10 +209,11 @@ def play_with_statistics(model_path="dqn_model.zip", num_episodes=3):
     print(f"Mean reward: {np.mean(all_rewards):.2f}")
     print(f"Mean episode length: {np.mean(all_lengths):.2f}")
 
+
 def main():
     """Main function"""
 
-    print("DQN Agent Player for BreakoutNoFrameskip-v4")
+    print("DQN Agent Player for ALE/Breakout-v5")
     print("=" * 50)
 
     # Check if model exists
@@ -228,22 +234,26 @@ def main():
     if choice == "1":
         print("\nStarting visual playback...")
         print("Close the game window to stop playing.")
-        num_episodes = int(input("Number of episodes to play (default 3): ") or "3")
+        num_episodes = int(
+            input("Number of episodes to play (default 3): ") or "3")
         play_dqn_agent(model_path, num_episodes)
 
     elif choice == "2":
         print("\nStarting performance evaluation...")
-        num_episodes = int(input("Number of episodes for evaluation (default 10): ") or "10")
+        num_episodes = int(
+            input("Number of episodes for evaluation (default 10): ") or "10")
         evaluate_agent_performance(model_path, num_episodes)
 
     elif choice == "3":
         print("\nStarting detailed statistics playback...")
-        num_episodes = int(input("Number of episodes to play (default 3): ") or "3")
+        num_episodes = int(
+            input("Number of episodes to play (default 3): ") or "3")
         play_with_statistics(model_path, num_episodes)
 
     else:
         print("Invalid choice. Running default visual playback...")
         play_dqn_agent(model_path, 3)
+
 
 if __name__ == "__main__":
     main()
