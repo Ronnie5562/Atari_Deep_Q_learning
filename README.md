@@ -9,21 +9,21 @@ This project implements a Deep Q-Network (DQN) agent to play the Atari game Brea
 
 ## Files Structure
 ```
-.
-├── train.py              # Training script
-├── play.py               # Playing/evaluation script
-├── requirements.txt      # Dependencies
-├── README.md            # This file
-├── dqn_model.zip        # Trained model (generated after training)
-└── logs/                # Training logs and tensorboard data
+Atari_Deep_Q_learning/
+    ├── train.py              # Training script
+    ├── play.py               # Playing/evaluation script
+    ├── requirements.txt      # Dependencies
+    ├── README.md            # This file
+    ├── dqn_model.zip        # Trained model (generated after training)
+    └── logs/                # Training logs and tensorboard data
 ```
 
 ## Installation
 
 1. **Clone the repository**
 ```bash
-git clone <your-repository-url>
-cd <repository-name>
+git clone https://github.com/Ronnie5562/Atari_Deep_Q_learning.git
+cd Atari_Deep_Q_learning
 ```
 
 2. **Install dependencies**
