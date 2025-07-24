@@ -116,9 +116,7 @@ The **dqn_model.zip** file is automatically generated when you run the training 
 
 ## Video Demonstration
 
-[We have to include a video file or link showing the agent playing Breakout when we are fully done]
-
-*Note: Record a video of the agent playing using the play.py script to demonstrate the trained model's performance.*
+[Watch Here](https://github.com/user-attachments/assets/6b8ba19f-fbd9-4789-bde0-1777221410dd)
 
 ## Performance Metrics
 
