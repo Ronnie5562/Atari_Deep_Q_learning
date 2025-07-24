@@ -2,259 +2,231 @@ import ale_py
 import gymnasium as gym
 import numpy as np
 from stable_baselines3 import DQN
-from stable_baselines3.common.env_util import make_atari_env
-from stable_baselines3.common.vec_env import VecFrameStack
+from stable_baselines3.common.atari_wrappers import AtariWrapper
 import time
 import os
+import warnings
+from collections import deque
 
+# Suppress warnings for cleaner output
+warnings.filterwarnings("ignore", category=UserWarning, module="gymnasium")
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-def create_environment(render_mode="human"):
+class ManualFrameStacker:
+    """Manual frame stacking implementation with proper channel ordering"""
+    def __init__(self, env, num_stack=4):
+        self.env = env
+        self.num_stack = num_stack
+        self.frames = deque(maxlen=num_stack)
+        
+        # Update observation space to match model expectations
+        self.observation_space = gym.spaces.Box(
+            low=0, high=255,
+            shape=(num_stack, 84, 84),
+            dtype=np.uint8
+        )
+    
+    def reset(self):
+        obs, info = self.env.reset()
+        # Squeeze channel dimension and store
+        obs = obs.squeeze(-1)
+        # Initialize with the first frame repeated
+        for _ in range(self.num_stack):
+            self.frames.append(obs)
+        return np.stack(self.frames), info
+    
+    def step(self, action):
+        next_obs, reward, terminated, truncated, info = self.env.step(action)
+        # Squeeze channel dimension
+        next_obs = next_obs.squeeze(-1)
+        self.frames.append(next_obs)
+        stacked_obs = np.stack(self.frames)
+        return stacked_obs, reward, terminated, truncated, info
+    
+    def close(self):
+        return self.env.close()
+    
+    def render(self):
+        return self.env.render()
+
+def create_environment(render_mode=None):
     """Create and configure the Atari environment for playing"""
-    # Create Atari environment with rendering
-    env = make_atari_env('ALE/Breakout-v5', n_envs=1, seed=42)
-    # Frame stacking: stack 4 frames for temporal information
-    env = VecFrameStack(env, n_stack=4)
+    # Create base environment
+    env = gym.make('ALE/Breakout-v5', 
+                   render_mode=render_mode,
+                   full_action_space=False,
+                   repeat_action_probability=0.0)
+    
+    # Apply preprocessing using Stable Baselines3 wrapper
+    env = AtariWrapper(
+        env,
+        noop_max=30,
+        frame_skip=4,
+        screen_size=84,
+        terminal_on_life_loss=False,
+        clip_reward=False
+    )
+    
+    # Apply manual frame stacking
+    env = ManualFrameStacker(env, num_stack=4)
     return env
 
-
-def play_dqn_agent(model_path="dqn_model.zip", num_episodes=5):
+def run_agent(num_episodes, model_path="dqn_model.zip", mode='visual'):
     """
-    Load trained DQN model and play episodes
-
+    Unified function to run the agent with different visualization modes
+    
     Args:
-        model_path (str): Path to the saved model
-        num_episodes (int): Number of episodes to play
+        num_episodes (int): Number of episodes to run
+        model_path (str): Path to the trained model file
+        mode (str): Execution mode ('visual', 'evaluate', or 'stats')
     """
-
-    # Check if model exists
+    # Validate inputs
+    if mode not in ['visual', 'evaluate', 'stats']:
+        print(f"Invalid mode '{mode}'. Using 'visual' mode.")
+        mode = 'visual'
+    
+    if num_episodes < 1:
+        print(f"Invalid episode count {num_episodes}. Using 3 episodes.")
+        num_episodes = 3
+    
+    # Check model exists
     if not os.path.exists(model_path):
         print(f"Error: Model file '{model_path}' not found!")
-        print("Make sure you've trained the model first by running train.py")
+        print("Make sure you've trained the model first.")
         return
-
-    # Create environment
-    env = create_environment()
-
+    
+    # Create environment based on mode
+    render_mode = "human" if mode in ['visual', 'stats'] else None
+    env = create_environment(render_mode=render_mode)
+    
     # Load the trained model
-    print(f"Loading model from {model_path}...")
     model = DQN.load(model_path)
-    print("Model loaded successfully!")
-
-    # Play episodes
-    for episode in range(num_episodes):
-        print(f"\n=== Episode {episode + 1} ===")
-
-        obs = env.reset()
-        total_reward = 0
-        steps = 0
-        done = False
-
-        while not done:
-            # Use the trained model to predict action (greedy policy)
-            action, _ = model.predict(obs, deterministic=True)
-
-            # Take action in environment
-            obs, reward, done, info = env.step(action)
-
-            total_reward += reward[0]  # VecEnv returns array
-            steps += 1
-
-            # Add small delay to make it easier to watch
-            time.sleep(0.01)
-
-            # Check if episode is done
-            if done[0]:
-                break
-
-        print(f"Episode {episode + 1} finished!")
-        print(f"Total reward: {total_reward}")
-        print(f"Total steps: {steps}")
-
-        # Wait a bit between episodes
-        time.sleep(1)
-
-    env.close()
-    print("\nPlayback completed!")
-
-
-def evaluate_agent_performance(model_path="dqn_model.zip", num_episodes=10):
-    """
-    Evaluate the agent's performance over multiple episodes
-
-    Args:
-        model_path (str): Path to the saved model
-        num_episodes (int): Number of episodes for evaluation
-    """
-
-    if not os.path.exists(model_path):
-        print(f"Error: Model file '{model_path}' not found!")
-        return
-
-    # Create environment without rendering for faster evaluation
-    env = create_environment()
-
-    # Load the trained model
-    print(f"Loading model for evaluation...")
-    model = DQN.load(model_path)
-
+    
     rewards = []
     episode_lengths = []
-
-    print(f"Evaluating agent over {num_episodes} episodes...")
-
+    all_actions = []
+    
+    start_time = time.time()
+    
     for episode in range(num_episodes):
-        obs = env.reset()
+        obs, info = env.reset()
         total_reward = 0
         steps = 0
-        done = False
-
-        while not done:
-            # Use greedy policy (deterministic=True)
-            action, _ = model.predict(obs, deterministic=True)
-            obs, reward, done, info = env.step(action)
-
-            total_reward += reward[0]
+        terminated = False
+        truncated = False
+        actions_taken = []
+        
+        while not (terminated or truncated):
+            # Prepare observation for model
+            obs_batch = np.expand_dims(obs, axis=0)
+            
+            # Predict action
+            action, _ = model.predict(obs_batch, deterministic=True)
+            action_val = action[0]
+            actions_taken.append(action_val)
+            
+            # Take action
+            obs, reward, terminated, truncated, info = env.step(action_val)
+            total_reward += reward
             steps += 1
-
-            if done[0]:
-                break
-
+            
+            # Add delay for visual modes
+            if mode in ['visual', 'stats']:
+                time.sleep(0.01)
+        
+        # Record results
         rewards.append(total_reward)
         episode_lengths.append(steps)
-
-        if (episode + 1) % 5 == 0:
-            print(f"Completed {episode + 1}/{num_episodes} episodes")
-
-    env.close()
-
-    # Calculate statistics
+        all_actions.append(actions_taken)
+        
+        # Print episode summary
+        if mode in ['visual', 'stats']:
+            print(f"\nEpisode {episode + 1}/{num_episodes} completed")
+            print(f"  Reward: {total_reward:.1f}")
+            print(f"  Steps: {steps}")
+            
+            if mode == 'stats':
+                action_counts = np.bincount(actions_taken)
+                print("  Actions taken:")
+                for action_idx, count in enumerate(action_counts):
+                    print(f"    Action {action_idx}: {count} times")
+    
+    # Calculate performance metrics
+    total_time = time.time() - start_time
     mean_reward = np.mean(rewards)
-    std_reward = np.std(rewards)
     mean_length = np.mean(episode_lengths)
-
-    print(f"\n=== Evaluation Results ===")
-    print(f"Number of episodes: {num_episodes}")
-    print(f"Mean reward: {mean_reward:.2f} ± {std_reward:.2f}")
-    print(f"Mean episode length: {mean_length:.2f}")
-    print(f"Best episode reward: {max(rewards):.2f}")
-    print(f"Worst episode reward: {min(rewards):.2f}")
-
-    return rewards, episode_lengths
-
-
-def play_with_statistics(model_path="dqn_model.zip", num_episodes=3):
-    """
-    Play episodes while showing detailed statistics
-    """
-
-    if not os.path.exists(model_path):
-        print(f"Error: Model file '{model_path}' not found!")
-        return
-
-    # Create environment
-    env = create_environment()
-
-    # Load the trained model
-    model = DQN.load(model_path)
-
-    all_rewards = []
-    all_lengths = []
-
-    for episode in range(num_episodes):
-        print(f"\n{'='*20} Episode {episode + 1} {'='*20}")
-
-        obs = env.reset()
-        total_reward = 0
-        steps = 0
-        done = False
-
-        # Track actions for statistics
-        actions_taken = []
-
-        while not done:
-            # Predict action
-            action, _ = model.predict(obs, deterministic=True)
-            actions_taken.append(action[0])
-
-            # Take action
-            obs, reward, done, info = env.step(action)
-
-            total_reward += reward[0]
-            steps += 1
-
-            # Print progress every 100 steps
-            if steps % 100 == 0:
-                print(f"Step {steps}: Reward = {total_reward:.1f}")
-
-            time.sleep(0.01)  # Small delay for visibility
-
-            if done[0]:
-                break
-
-        all_rewards.append(total_reward)
-        all_lengths.append(steps)
-
-        # Episode statistics
-        print(f"\nEpisode {episode + 1} Summary:")
-        print(f"  Total reward: {total_reward:.2f}")
-        print(f"  Episode length: {steps} steps")
-        print(f"  Actions distribution: {np.bincount(actions_taken)}")
-
-        time.sleep(2)  # Pause between episodes
-
+    
+    # Print final summary
+    print(f"\n=== Summary ===")
+    print(f"Total episodes: {num_episodes}")
+    print(f"Total time: {total_time:.1f} seconds")
+    print(f"Average steps per second: {np.sum(episode_lengths)/total_time:.1f}")
+    print(f"Average reward: {mean_reward:.1f}")
+    print(f"Average steps per episode: {mean_length:.1f}")
+    
+    if mode != 'visual':
+        print(f"Best reward: {max(rewards):.1f}")
+        print(f"Worst reward: {min(rewards):.1f}")
+        print(f"Reward standard deviation: {np.std(rewards):.1f}")
+    
+    # Additional detailed statistics for stats mode
+    if mode == 'stats':
+        # Combine all actions across episodes
+        all_actions_flat = [action for episode_actions in all_actions for action in episode_actions]
+        total_actions = len(all_actions_flat)
+        
+        print("\n=== Detailed Action Statistics ===")
+        print(f"Total actions taken: {total_actions}")
+        
+        # Calculate action frequencies
+        action_counts = np.bincount(all_actions_flat)
+        for action_idx, count in enumerate(action_counts):
+            percentage = (count / total_actions) * 100
+            print(f"Action {action_idx}: {count} times ({percentage:.1f}%)")
+        
+        # Calculate actions per episode
+        print("\nActions per episode:")
+        for episode in range(num_episodes):
+            print(f"Episode {episode+1}: {len(all_actions[episode])} actions")
+    
     env.close()
-
-    # Overall statistics
-    print(f"\n{'='*20} Overall Statistics {'='*20}")
-    print(f"Mean reward: {np.mean(all_rewards):.2f}")
-    print(f"Mean episode length: {np.mean(all_lengths):.2f}")
-
-
-def main():
-    """Main function"""
-
-    print("DQN Agent Player for ALE/Breakout-v5")
-    print("=" * 50)
-
-    # Check if model exists
-    model_path = "dqn_model.zip"
-    if not os.path.exists(model_path):
-        print(f"Error: Model file '{model_path}' not found!")
-        print("Please train the model first by running 'python train.py'")
-        return
-
-    # Menu for different play modes
-    print("\nChoose play mode:")
-    print("1. Play with visualization (recommended)")
-    print("2. Evaluate performance (no visualization)")
-    print("3. Play with detailed statistics")
-
-    choice = input("Enter your choice (1-3): ")
-
-    if choice == "1":
-        print("\nStarting visual playback...")
-        print("Close the game window to stop playing.")
-        num_episodes = int(
-            input("Number of episodes to play (default 3): ") or "3")
-        play_dqn_agent(model_path, num_episodes)
-
-    elif choice == "2":
-        print("\nStarting performance evaluation...")
-        num_episodes = int(
-            input("Number of episodes for evaluation (default 10): ") or "10")
-        evaluate_agent_performance(model_path, num_episodes)
-
-    elif choice == "3":
-        print("\nStarting detailed statistics playback...")
-        num_episodes = int(
-            input("Number of episodes to play (default 3): ") or "3")
-        play_with_statistics(model_path, num_episodes)
-
-    else:
-        print("Invalid choice. Running default visual playback...")
-        play_dqn_agent(model_path, 3)
 
 
 if __name__ == "__main__":
-    main()
-
+    # Clear terminal
+    os.system('cls' if os.name == 'nt' else 'clear')
+    
+    print("DQN Agent Player for ALE/Breakout-v5")
+    print("=" * 50)
+    
+    # Prompt for number of episodes
+    while True:
+        try:
+            num_episodes = int(input("\nEnter the number of episodes to play: "))
+            if num_episodes > 0:
+                break
+            else:
+                print("Please enter a number greater than 0.")
+        except ValueError:
+            print("Invalid input. Please enter a number.")
+    
+    # Prompt for mode selection
+    print("\nSelect an execution mode:")
+    print("1. Visual Playback (with rendering)")
+    print("2. Performance Evaluation (no rendering)")
+    print("3. Detailed Action Statistics (with rendering and action analysis)")
+    
+    mode_choice = input("Enter your choice (1-3): ")
+    mode_map = {
+        '1': 'visual',
+        '2': 'evaluate',
+        '3': 'stats'
+    }
+    
+    mode = mode_map.get(mode_choice, 'visual')
+    
+    # Run the agent with selected options
+    run_agent(num_episodes=num_episodes, mode=mode)
+    
+    # Keep terminal open
+    input("\nPress Enter to exit...")
